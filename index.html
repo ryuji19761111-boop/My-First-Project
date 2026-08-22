@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>フォールバディーズ - Fall Buddies</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body {
+    width:100%; height:100%; overflow:hidden; background:#1a1a2e;
+    font-family:'Segoe UI',sans-serif;
+    /* touch-actionはcanvasと操作パーツにだけ絞る。全称*には付けない(ボタンのclick/tap阻害を防ぐ) */
+  }
+  #gameCanvas { display:block; width:100%; height:100%; touch-action:none; }
+
+  #ui { position:fixed; inset:0; z-index:10; }
+  /* uiレイヤー自体はクリックを透過させ、必要な子要素だけ有効化 */
+  #ui { pointer-events:none; }
+  #ui > * { pointer-events:auto; }
+
+  /* ---- タイトル画面 ---- */
+  #titleScreen {
+    position:fixed; inset:0; z-index:200;
+    background:linear-gradient(160deg,#ff6b9d,#7b5cff 60%,#3ec6ff);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    color:#fff; text-align:center; padding:20px;
+    overflow-y:auto;
+  }
+  #titleScreen h1 { font-size:38px; text-shadow:0 4px 0 rgba(0,0,0,0.25); margin-bottom:6px; letter-spacing:1px; }
+  #titleScreen p.sub { opacity:0.9; margin-bottom:24px; font-size:14px; }
+  .modeGrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; width:100%; max-width:420px; }
+  .modeBtn {
+    background:rgba(255,255,255,0.15); border:3px solid #fff; border-radius:16px;
+    padding:16px 10px; color:#fff; font-size:16px; font-weight:bold;
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    cursor:pointer; -webkit-tap-highlight-color:transparent;
+  }
+  .modeBtn .icon { font-size:28px; }
+  .modeBtn small { font-weight:normal; font-size:11px; opacity:0.85; }
+  .modeBtn.pressed { transform:scale(0.95); background:rgba(255,255,255,0.35); }
+  #startFullscreenHint { margin-top:20px; font-size:12px; opacity:0.85; }
+  #debugLine { margin-top:10px; font-size:10px; opacity:0.6; min-height:14px; }
+
+  /* ---- HUD ---- */
+  #hud { position:fixed; top:0; left:0; right:0; padding:10px 12px; display:none; justify-content:space-between; align-items:flex-start; z-index:20; }
+  #hudLeft, #hudRight { display:flex; flex-direction:column; gap:6px; }
+  .pill { background:rgba(0,0,0,0.45); color:#fff; padding:6px 14px; border-radius:20px; font-size:13px; font-weight:bold; }
+  #timerPill { font-size:20px; }
+  #rankPill { background:rgba(255,180,0,0.85); }
+  #qualPill { background:rgba(0,0,0,0.45); font-size:11px; max-width:200px; }
+
+  #topBanner {
+    position:fixed; top:8px; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.55); color:#fff; padding:8px 20px; border-radius:14px;
+    font-size:15px; font-weight:bold; z-index:25; opacity:0; transition:opacity .3s;
+    text-align:center; white-space:nowrap; pointer-events:none;
+  }
+  #topBanner.show { opacity:1; }
+
+  /* ---- 操作系 ---- */
+  #joystickZone { position:fixed; left:0; bottom:0; width:45%; height:50%; z-index:15; touch-action:none; display:none; }
+  #joystickBase {
+    position:fixed; width:110px; height:110px; border-radius:50%;
+    background:rgba(255,255,255,0.15); border:3px solid rgba(255,255,255,0.5);
+    display:none; z-index:16; pointer-events:none;
+  }
+  #joystickStick {
+    position:fixed; width:50px; height:50px; border-radius:50%;
+    background:rgba(255,255,255,0.6); border:2px solid #fff;
+    display:none; z-index:17; pointer-events:none;
+  }
+
+  #actionZone { position:fixed; right:14px; bottom:18px; z-index:15; display:none; flex-direction:column; align-items:flex-end; gap:12px; }
+  .actBtn {
+    width:72px; height:72px; border-radius:50%; border:3px solid rgba(255,255,255,0.7);
+    font-size:12px; font-weight:bold; color:#fff; display:flex; align-items:center; justify-content:center;
+    text-align:center; line-height:1.1; touch-action:none;
+  }
+  #btnJump { background:rgba(255,205,0,0.55); width:82px; height:82px; font-size:14px; }
+  #btnDive { background:rgba(255,80,80,0.55); }
+  #btnGrab { background:rgba(70,160,255,0.55); }
+  .actBtn.pressed { transform:scale(0.9); filter:brightness(1.3); }
+
+  #fullscreenBtn {
+    position:fixed; top:10px; right:10px; z-index:210;
+    width:44px; height:44px; border-radius:10px; background:rgba(0,0,0,0.5);
+    color:#fff; border:2px solid rgba(255,255,255,0.6); font-size:18px;
+    display:flex; align-items:center; justify-content:center; touch-action:manipulation;
+  }
+  #fullscreenBtn.pressed { background:rgba(0,0,0,0.8); }
+
+  /* ---- リザルト ---- */
+  #resultScreen {
+    position:fixed; inset:0; z-index:200; display:none;
+    background:rgba(10,10,25,0.92);
+    flex-direction:column; align-items:center; justify-content:center; color:#fff; text-align:center;
+    padding:20px;
+  }
+  #resultScreen h2 { font-size:34px; margin-bottom:10px; }
+  #resultScreen p { font-size:15px; margin-bottom:26px; opacity:0.85; }
+  #resultScreen button {
+    background:linear-gradient(135deg,#ff6b9d,#7b5cff); border:none; color:#fff;
+    padding:14px 36px; border-radius:30px; font-size:16px; font-weight:bold;
+    touch-action:manipulation;
+  }
+  #crownIcon { font-size:60px; margin-bottom:6px; }
+
+  #loadingScreen {
+    position:fixed; inset:0; z-index:300; background:#1a1a2e; color:#fff;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+  }
+  #loadingScreen .spinner {
+    width:40px; height:40px; border:4px solid rgba(255,255,255,0.2); border-top-color:#ff6b9d;
+    border-radius:50%; animation:spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  #loadErrorBox {
+    position:fixed; inset:0; z-index:400; background:#1a1a2e; color:#fff; display:none;
+    flex-direction:column; align-items:center; justify-content:center; padding:24px; text-align:center; gap:10px;
+  }
+  #loadErrorBox h2 { color:#ff6b6b; }
+  #loadErrorBox pre { background:#000; padding:10px; border-radius:8px; font-size:11px; max-width:100%; overflow:auto; text-align:left; }
+
+  @media (max-height:420px){ .actBtn{ width:60px;height:60px;} #btnJump{width:70px;height:70px;} }
+</style>
+</head>
+<body>
+
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div>読み込み中...</div>
+</div>
+
+<div id="loadErrorBox">
+  <h2>⚠️ 読み込みエラー</h2>
+  <p>ライブラリの読み込みに失敗しました。通信環境を確認して再読み込みしてください。</p>
+  <pre id="loadErrorDetail"></pre>
+</div>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="ui">
+  <div id="titleScreen">
+    <h1>🫘 フォールバディーズ</h1>
+    <p class="sub">モードを選んでスタート！(Bot 15体と対戦)</p>
+    <div class="modeGrid">
+      <button type="button" class="modeBtn" data-mode="race"><span class="icon">🏁</span>レース<small>ゴールを目指せ</small></button>
+      <button type="button" class="modeBtn" data-mode="survival"><span class="icon">🌀</span>サバイバル<small>回る床で耐えろ</small></button>
+      <button type="button" class="modeBtn" data-mode="dodge"><span class="icon">💥</span>大玉回避<small>転がる玉を避けろ</small></button>
+      <button type="button" class="modeBtn" data-mode="team"><span class="icon">🎯</span>チーム対戦<small>タックルで押し出せ</small></button>
+    </div>
+    <div id="startFullscreenHint">💡 右上のボタンで全画面プレイがおすすめ！</div>
+    <div id="debugLine"></div>
+  </div>
+
+  <div id="hud">
+    <div id="hudLeft">
+      <div class="pill" id="timerPill">⏱ 60</div>
+      <div class="pill" id="qualPill">残り人数: --</div>
+    </div>
+    <div id="hudRight"><div class="pill" id="rankPill">順位: -</div></div>
+  </div>
+  <div id="topBanner"></div>
+
+  <button type="button" id="fullscreenBtn" title="全画面">⛶</button>
+
+  <div id="joystickZone"></div>
+  <div id="joystickBase"></div>
+  <div id="joystickStick"></div>
+
+  <div id="actionZone">
+    <div class="actBtn" id="btnGrab">掴む</div>
+    <div class="actBtn" id="btnDive">タックル</div>
+    <div class="actBtn" id="btnJump">ジャンプ</div>
+  </div>
+
+  <div id="resultScreen">
+    <div id="crownIcon">👑</div>
+    <h2 id="resultTitle">クリア！</h2>
+    <p id="resultSub"></p>
+    <button type="button" id="retryBtn">もう一度プレイ</button>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"></script>
+<script>
+window.addEventListener('error', function(e){
+  var box = document.getElementById('loadErrorBox');
+  var detail = document.getElementById('loadErrorDetail');
+  if (box && detail) {
+    detail.textContent = (e.message||'') + '\n' + (e.filename||'') + ':' + (e.lineno||'');
+    box.style.display = 'flex';
+  }
+});
+</script>
+<script src="core.js"></script>
+<script src="entities.js"></script>
+<script src="stages.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
