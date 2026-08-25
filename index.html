@@ -1,106 +1,276 @@
+
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Backrooms 3D</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Backrooms 3D - 鬼ごっこ</title>
     <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         body {
             margin: 0; overflow: hidden; background-color: #000;
-            font-family: sans-serif; user-select: none; -webkit-user-select: none;
+            font-family: 'Courier New', monospace; user-select: none; -webkit-user-select: none;
+            touch-action: none;
         }
         #canvas-container { width: 100vw; height: 100vh; }
+        canvas { display: block; }
+
+        /* ---------- START SCREEN ---------- */
+        #start-screen {
+            position: fixed; inset: 0; z-index: 50;
+            background: radial-gradient(ellipse at center, #3a3520 0%, #16150c 70%, #050502 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: #e8e0a0; text-align: center; padding: 20px;
+        }
+        #start-screen h1 {
+            font-size: clamp(24px, 6vw, 46px); letter-spacing: 6px;
+            text-shadow: 0 0 20px rgba(232,224,160,0.6), 0 0 40px rgba(180,160,40,0.3);
+            animation: flicker 4s infinite;
+        }
+        @keyframes flicker {
+            0%,19%,21%,23%,80%,100% { opacity: 1; }
+            20%,22%,79% { opacity: 0.75; }
+        }
+        #start-screen p { margin-top: 14px; font-size: clamp(12px,2.4vw,15px); color: #b8ae78; max-width: 500px; line-height: 1.6; }
+        #start-btn {
+            margin-top: 28px; padding: 14px 40px; font-size: clamp(16px,3vw,19px);
+            background: linear-gradient(180deg,#6b5f2a,#3a3315); color: #f0e8b0; border: 2px solid #cbb85a;
+            border-radius: 6px; letter-spacing: 3px; font-family: inherit;
+            box-shadow: 0 0 20px rgba(203,184,90,0.4);
+        }
+        #start-btn:active { transform: scale(0.96); }
+        #rotate-notice { display: none; margin-top: 18px; color: #ff8888; font-size: 13px; }
+        .portrait #rotate-notice { display: block; }
+        .portrait #start-btn { display: none; }
+
+        /* ---------- LOADING ---------- */
+        #loading-screen {
+            position: fixed; inset: 0; z-index: 70; background: #0a0906; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+            color: #e8e0a0; font-size: 14px; letter-spacing: 2px; padding: 20px; text-align: center;
+        }
+        #loading-screen.error { color: #ff6b6b; }
+        #loading-err-stack {
+            margin-top: 12px; font-size: 10px; color: #ff9a9a; opacity: 0.85;
+            max-width: 90%; max-height: 38vh; overflow: auto; text-align: left; white-space: pre-wrap; display: none;
+        }
+        #loading-reload {
+            display: none; margin-top: 18px; padding: 10px 26px; font-size: 14px;
+            background: linear-gradient(180deg,#6b5f2a,#3a3315); color: #f0e8b0; border: 2px solid #cbb85a;
+            border-radius: 6px; letter-spacing: 2px; font-family: inherit;
+        }
+        #loading-screen.error #loading-reload { display: inline-block; }
+
+        /* ---------- HUD ---------- */
         #ui-overlay {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            pointer-events: none; box-sizing: border-box; padding: 20px;
-            display: flex; flex-direction: column; justify-content: space-between;
+            position: absolute; inset: 0; pointer-events: none; box-sizing: border-box;
+            display: none;
+        }
+        #ui-overlay.active { display: block; }
+        #top-bar {
+            position: absolute; top: env(safe-area-inset-top, 10px); left: 0; right: 0;
+            display: flex; justify-content: space-between; align-items: flex-start; padding: 0 16px;
+        }
+        #status-box {
+            background: rgba(10,10,5,0.55); border: 1px solid rgba(232,224,160,0.3);
+            border-radius: 8px; padding: 8px 14px; color: #e8e0a0; font-size: 13px; backdrop-filter: blur(3px);
+        }
+        #timer-box {
+            background: rgba(10,10,5,0.55); border: 1px solid rgba(232,224,160,0.3);
+            border-radius: 8px; padding: 8px 18px; color: #f0e8b0; font-size: 20px; font-weight: bold; backdrop-filter: blur(3px);
         }
         #stamina-container {
-            width: 180px; height: 12px; background: rgba(0,0,0,0.6);
-            border: 2px solid #fff; border-radius: 6px; overflow: hidden;
+            position: absolute; top: 66px; left: 16px; width: 130px; height: 9px;
+            background: rgba(10,10,5,0.6); border: 1px solid rgba(232,224,160,0.3); border-radius: 5px; overflow: hidden;
         }
-        #stamina-bar { width: 100%; height: 100%; background: #00ffcc; }
-        #status-text { color: #fff; font-weight: bold; text-shadow: 2px 2px 4px #000; font-size: 14px; }
-        #touch-controls {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto;
+        #stamina-bar { width: 100%; height: 100%; background: linear-gradient(90deg,#e8d060,#b09030); transition: width 0.1s linear; }
+        #vignette {
+            position: absolute; inset: 0; pointer-events: none;
+            box-shadow: inset 0 0 0 0 rgba(150,0,0,0); transition: box-shadow 0.2s;
         }
+
+        /* ---------- CONTROLS ---------- */
+        #touch-controls { position: absolute; inset: 0; pointer-events: none; display: none; }
+        #touch-controls.active { display: block; }
         #joystick-zone {
-            position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px;
-            background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3);
-            border-radius: 50%; touch-action: none;
+            position: absolute; bottom: 24px; left: 24px; width: 120px; height: 120px;
+            background: rgba(232,224,160,0.08); border: 2px solid rgba(232,224,160,0.35);
+            border-radius: 50%; pointer-events: auto;
         }
         #joystick-knob {
             position: absolute; top: 35px; left: 35px; width: 50px; height: 50px;
-            background: rgba(255, 255, 255, 0.5); border-radius: 50%;
+            background: rgba(232,224,160,0.5); border: 1px solid rgba(255,255,255,0.4); border-radius: 50%;
+        }
+        #look-zone {
+            position: absolute; right: 0; bottom: 0; width: 55%; height: 100%; pointer-events: auto;
         }
         #run-btn {
-            position: absolute; bottom: 40px; right: 40px; width: 70px; height: 70px;
-            background: rgba(100, 100, 100, 0.5); border: 2px solid #fff;
-            border-radius: 50%; color: white; font-weight: bold;
-            display: flex; align-items: center; justify-content: center; touch-action: none;
+            position: absolute; right: max(20px, env(safe-area-inset-right)); bottom: 110px;
+            width: 74px; height: 74px; background: rgba(203,184,90,0.18); border: 2px solid rgba(232,224,160,0.5);
+            border-radius: 50%; color: #f0e8b0; font-weight: bold; font-size: 12px; letter-spacing: 1px;
+            display: flex; align-items: center; justify-content: center; text-align: center; pointer-events: auto;
         }
+        #run-btn.active2 { background: rgba(232,180,60,0.5); }
+        #crouch-btn {
+            position: absolute; right: max(20px, env(safe-area-inset-right)); bottom: 20px;
+            width: 74px; height: 74px; background: rgba(90,140,203,0.18); border: 2px solid rgba(160,200,232,0.5);
+            border-radius: 50%; color: #e0ecf0; font-weight: bold; font-size: 12px; letter-spacing: 1px;
+            display: flex; align-items: center; justify-content: center; text-align: center; pointer-events: auto;
+        }
+        #crouch-btn.active2 { background: rgba(60,140,232,0.5); }
+
+        /* ---------- END SCREEN ---------- */
         #game-over {
-            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(150, 0, 0, 0.9); color: white;
+            display: none; position: fixed; inset: 0; z-index: 60;
+            background: rgba(0,0,0,0.85); color: #f0e8b0;
             flex-direction: column; justify-content: center; align-items: center; pointer-events: auto;
+            text-align: center;
         }
+        #game-over.show { display: flex; }
+        #end-title { font-size: clamp(28px,7vw,54px); letter-spacing: 6px; margin-bottom: 14px; }
+        #end-title.caught { color: #ff4444; text-shadow: 0 0 30px rgba(255,0,0,0.8); }
+        #end-title.win { color: #8ef08e; text-shadow: 0 0 30px rgba(80,255,80,0.7); }
+        #end-stats { font-size: 14px; color: #c8c0a0; margin-bottom: 22px; }
         #game-over button {
-            padding: 15px 30px; font-size: 18px; background: #fff;
-            border: none; border-radius: 5px; margin-top: 20px; cursor: pointer;
+            padding: 12px 34px; font-size: 15px; background: linear-gradient(180deg,#6b5f2a,#3a3315);
+            color: #f0e8b0; border: 2px solid #cbb85a; border-radius: 6px; letter-spacing: 2px;
+            font-family: inherit; cursor: pointer;
         }
     </style>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
 
     <div id="canvas-container"></div>
-    <div id="ui-overlay">
-        <div>
-            <div id="status-text">STAMINA</div>
-            <div id="stamina-container"><div id="stamina-bar"></div></div>
-        </div>
+
+    <div id="start-screen">
+        <h1>BACKROOMS TAG</h1>
+        <p>黄ばんだ壁紙と湿ったカーペットが果てしなく続く「バックルームズ」。<br>
+        暗闇の奥で何かが徘徊している。60秒間、鬼から逃げ切れ。</p>
+        <button id="start-btn">ゲーム開始（全画面）</button>
+        <div id="rotate-notice">📱 端末を横向きにしてください</div>
     </div>
+
+    <div id="loading-screen">
+        <div id="loading-text">初期化中...</div>
+        <div id="loading-err-stack"></div>
+        <button id="loading-reload">リロードして再試行</button>
+    </div>
+
+    <div id="ui-overlay">
+        <div id="top-bar">
+            <div id="status-box"><span id="status-text">徘徊中...</span></div>
+            <div id="timer-box">60</div>
+        </div>
+        <div id="stamina-container"><div id="stamina-bar"></div></div>
+        <div id="vignette"></div>
+    </div>
+
     <div id="touch-controls">
         <div id="joystick-zone"><div id="joystick-knob"></div></div>
-        <div id="run-btn">WALK</div>
-    </div>
-    <div id="game-over">
-        <h1>GAME OVER</h1>
-        <button onclick="location.reload()">RETRY</button>
+        <div id="look-zone"></div>
+        <div id="run-btn">RUN</div>
+        <div id="crouch-btn">CROUCH</div>
     </div>
 
+    <div id="game-over">
+        <div id="end-title">GAME OVER</div>
+        <div id="end-stats"></div>
+        <button onclick="location.reload()">もう一度</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
+(function(){
+"use strict";
+
+// ============================================================
+//  ORIENTATION
+// ============================================================
+function checkOrientation(){
+    document.body.classList.toggle('portrait', window.innerHeight > window.innerWidth);
+}
+checkOrientation();
+window.addEventListener('resize', checkOrientation);
+window.addEventListener('orientationchange', checkOrientation);
+
+function requestFullscreenAndLock(){
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen || el.mozRequestFullScreen || el.msRequestFullscreen;
+    if(req){ req.call(el).catch(()=>{}); }
+    if(screen.orientation && screen.orientation.lock){
+        screen.orientation.lock('landscape').catch(()=>{});
+    }
+}
+
+// ============================================================
+//  CONSTANTS
+// ============================================================
 const MAP_SIZE = 25;
 const CELL_SIZE = 4;
+const WALL_H = 3;
+const TIME_LIMIT = 600;
+const PLAYER_RADIUS = 0.32;
+const MONSTER_RADIUS = 0.4;
+
 let scene, camera, renderer;
-let player, monster;
+let player, monster, monsterMesh, monsterLight;
 let stamina = 100;
-let isRunning = false;
+let isRunning = false, isCrouching = false;
 let moveForward = 0, moveRight = 0;
 let touchLookId = null, touchLookLastX = 0, touchLookLastY = 0;
+let camPitch = 0;
+let bobTime = 0;
 
-let map = [];
-const walls = [];
+let map = [];          // 0 = 通路, 1 = 壁
+let lightPool = [];
+let gameActive = false;
+let gameElapsed = 0;
+let gameOverHandled = false;
+let clock;
 
-// モンスターAI用
-let monsterState = 'WANDER';
-let monsterTarget = new THREE.Vector3();
-let monsterSpeed = 2.0;
-
+// ============================================================
+//  TEXTURES（質感強化：ノイズ＋シミ＋汚れ）
+// ============================================================
 function createWallTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 256; canvas.height = 256;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#c5b358'; ctx.fillRect(0, 0, 256, 256);
-    ctx.strokeStyle = '#a49338'; ctx.lineWidth = 2;
+    ctx.fillStyle = '#c9b356'; ctx.fillRect(0, 0, 256, 256);
+
+    // ベースノイズ
+    const img = ctx.getImageData(0,0,256,256);
+    for(let i=0;i<img.data.length;i+=4){
+        const n = (Math.random()-0.5)*22;
+        img.data[i] = Math.min(255,Math.max(0,img.data[i]+n));
+        img.data[i+1] = Math.min(255,Math.max(0,img.data[i+1]+n));
+        img.data[i+2] = Math.min(255,Math.max(0,img.data[i+2]+n*0.6));
+    }
+    ctx.putImageData(img,0,0);
+
+    // 壁紙の縦パネルライン
+    ctx.strokeStyle = 'rgba(150,130,50,0.6)'; ctx.lineWidth = 2;
     for(let i = 0; i < 256; i += 32) {
         ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(i, 40); ctx.lineTo(i+16, 60); ctx.lineTo(i, 80); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(i, 160); ctx.lineTo(i-16, 180); ctx.lineTo(i, 200); ctx.stroke();
     }
+
+    // 水シミ・汚れ
+    ctx.globalAlpha = 0.15;
+    for(let i=0;i<8;i++){
+        const cx = Math.random()*256, cy = Math.random()*256, r = 10+Math.random()*30;
+        const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+        grad.addColorStop(0, 'rgba(80,65,20,0.8)');
+        grad.addColorStop(1, 'rgba(80,65,20,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
     tex.repeat.set(1, 1);
+    tex.anisotropy = 4;
     return tex;
 }
 
@@ -108,10 +278,41 @@ function createFloorTexture() {
     const canvas = document.createElement('canvas');
     canvas.width = 128; canvas.height = 128;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#6e6b4e'; ctx.fillRect(0, 0, 128, 128);
-    for(let i=0; i<1000; i++) {
-        ctx.fillStyle = Math.random() > 0.5 ? '#5e5b3e' : '#7e7b5e';
+    ctx.fillStyle = '#6b5a2e'; ctx.fillRect(0, 0, 128, 128);
+    for(let i=0; i<2200; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#5a4a26' : '#7d6a3a';
         ctx.fillRect(Math.random()*128, Math.random()*128, 2, 2);
+    }
+    // カーペットのシミ
+    ctx.globalAlpha = 0.12;
+    for(let i=0;i<5;i++){
+        const cx = Math.random()*128, cy = Math.random()*128, r = 8+Math.random()*18;
+        const grad = ctx.createRadialGradient(cx,cy,0,cx,cy,r);
+        grad.addColorStop(0, 'rgba(30,25,10,0.9)');
+        grad.addColorStop(1, 'rgba(30,25,10,0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(MAP_SIZE, MAP_SIZE);
+    tex.anisotropy = 4;
+    return tex;
+}
+
+function createCeilingTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#dcd4a0'; ctx.fillRect(0,0,128,128);
+    ctx.strokeStyle = 'rgba(120,110,60,0.5)'; ctx.lineWidth = 1.5;
+    ctx.strokeRect(2,2,124,124);
+    // 天井タイルのシミ点
+    for(let i=0;i<60;i++){
+        ctx.fillStyle = 'rgba(150,140,90,0.25)';
+        ctx.fillRect(Math.random()*128, Math.random()*128, 1.5, 1.5);
     }
     const tex = new THREE.CanvasTexture(canvas);
     tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
@@ -119,11 +320,13 @@ function createFloorTexture() {
     return tex;
 }
 
+// ============================================================
+//  MAP GENERATION（部屋＋通路のハイブリッド、旧ロジックを踏襲・強化）
+// ============================================================
 function generateMap() {
     for(let i=0; i<MAP_SIZE; i++) map[i] = new Array(MAP_SIZE).fill(1);
-    
-    // 複雑な四角部屋と通路の生成
-    for(let i=0; i<15; i++) {
+
+    for(let i=0; i<16; i++) {
         let w = Math.floor(Math.random() * 3) + 2;
         let h = Math.floor(Math.random() * 3) + 2;
         let x = Math.floor(Math.random() * (MAP_SIZE - w - 2)) + 1;
@@ -142,35 +345,229 @@ function generateMap() {
     map[1][1] = 0; map[1][2] = 0; map[2][1] = 0;
 }
 
-function init() {
+function cellIsOpen(gx, gy){
+    if(gx<0||gy<0||gx>=MAP_SIZE||gy>=MAP_SIZE) return false;
+    return map[gy][gx] === 0;
+}
+
+// ============================================================
+//  COLLISION（グリッドベース：軽量・毎フレームBox3走査を廃止）
+// ============================================================
+function resolveCollision(pos, radius){
+    const gx = Math.floor(pos.x / CELL_SIZE);
+    const gy = Math.floor(pos.z / CELL_SIZE);
+    // 周囲3x3セルのみチェック（全壁走査を回避）
+    for(let dy=-1; dy<=1; dy++){
+        for(let dx=-1; dx<=1; dx++){
+            const cx = gx+dx, cy = gy+dy;
+            if(cx<0||cy<0||cx>=MAP_SIZE||cy>=MAP_SIZE) continue;
+            if(map[cy][cx] !== 1) continue;
+            const wx = cx*CELL_SIZE + CELL_SIZE/2, wz = cy*CELL_SIZE + CELL_SIZE/2;
+            const minX = wx-CELL_SIZE/2, maxX = wx+CELL_SIZE/2;
+            const minZ = wz-CELL_SIZE/2, maxZ = wz+CELL_SIZE/2;
+            const closestX = Math.max(minX, Math.min(pos.x, maxX));
+            const closestZ = Math.max(minZ, Math.min(pos.z, maxZ));
+            const ddx = pos.x - closestX, ddz = pos.z - closestZ;
+            const distSq = ddx*ddx + ddz*ddz;
+            if(distSq < radius*radius){
+                const dist = Math.sqrt(distSq) || 0.0001;
+                const overlap = radius - dist;
+                pos.x += (ddx/dist) * overlap;
+                pos.z += (ddz/dist) * overlap;
+            }
+        }
+    }
+}
+
+// グリッドDDAによる軽量レイキャスト（壁遮蔽判定。Box3走査より高速）
+function hasLineOfSight(ax, az, bx, bz){
+    const dx = bx-ax, dz = bz-az;
+    const dist = Math.sqrt(dx*dx+dz*dz);
+    const steps = Math.ceil(dist / 0.35);
+    for(let i=0;i<=steps;i++){
+        const t = i/steps;
+        const px = ax+dx*t, pz = az+dz*t;
+        const gx = Math.floor(px/CELL_SIZE), gy = Math.floor(pz/CELL_SIZE);
+        if(!cellIsOpen(gx,gy)) return false;
+    }
+    return true;
+}
+
+function randomOpenCell(avoid, minDist){
+    let tries = 0;
+    while(tries++ < 400){
+        const gx = 1+Math.floor(Math.random()*(MAP_SIZE-2));
+        const gy = 1+Math.floor(Math.random()*(MAP_SIZE-2));
+        if(map[gy][gx] === 0){
+            const wx = gx*CELL_SIZE+CELL_SIZE/2, wz = gy*CELL_SIZE+CELL_SIZE/2;
+            if(avoid){
+                const dx = wx-avoid.x, dz = wz-avoid.z;
+                if(Math.sqrt(dx*dx+dz*dz) < minDist) continue;
+            }
+            return {x:wx, z:wz, gx, gy};
+        }
+    }
+    return {x:CELL_SIZE*1.5, z:CELL_SIZE*1.5, gx:1, gy:1};
+}
+
+// ============================================================
+//  MONSTER AI（BFS経路探索＋視界判定）
+// ============================================================
+let monsterState = 'WANDER';
+let monsterPath = [];
+let monsterPathTimer = 0;
+let monsterLastSeenTime = 0;
+
+function bfsPath(startGX,startGY,goalGX,goalGY){
+    if(startGX===goalGX && startGY===goalGY) return [];
+    const key = (x,y)=>y*MAP_SIZE+x;
+    const visited = new Set([key(startGX,startGY)]);
+    const queue = [[startGX,startGY,[]]];
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    let iter = 0;
+    while(queue.length && iter++ < 2500){
+        const [x,y,path] = queue.shift();
+        for(const [dx,dy] of dirs){
+            const nx=x+dx, ny=y+dy;
+            if(!cellIsOpen(nx,ny)) continue;
+            const k = key(nx,ny);
+            if(visited.has(k)) continue;
+            visited.add(k);
+            const newPath = path.concat([[nx,ny]]);
+            if(nx===goalGX && ny===goalGY) return newPath;
+            queue.push([nx,ny,newPath]);
+        }
+    }
+    return [];
+}
+
+function buildMonster(){
+    const group = new THREE.Group();
+
+    const bodyMat = new THREE.MeshLambertMaterial({ color: 0x0a0a0a });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 2.2, 10), bodyMat);
+    body.position.y = 1.1;
+    group.add(body);
+
+    const headMat = new THREE.MeshLambertMaterial({ color: 0x151010 });
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.32, 12, 10), headMat);
+    head.position.y = 2.05;
+    head.scale.set(0.85, 1.05, 0.9);
+    group.add(head);
+
+    const eyeGeo = new THREE.SphereGeometry(0.09, 8, 8);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+    const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+    eye1.position.set(0.15, 2.08, -0.28);
+    eye2.position.set(-0.15, 2.08, -0.28);
+    group.add(eye1, eye2);
+
+    const armGeo = new THREE.CylinderGeometry(0.08, 0.08, 1.0, 6);
+    const armL = new THREE.Mesh(armGeo, bodyMat); armL.position.set(-0.5, 1.1, 0); armL.rotation.z = 0.15;
+    const armR = new THREE.Mesh(armGeo, bodyMat); armR.position.set(0.5, 1.1, 0); armR.rotation.z = -0.15;
+    group.add(armL, armR);
+
+    monsterLight = new THREE.PointLight(0xff2020, 1.1, 5, 2);
+    monsterLight.position.y = 2.05;
+    group.add(monsterLight);
+
+    monsterMesh = group;
+    scene.add(group);
+
+    monster = { position: new THREE.Vector3() };
+}
+
+function updateMonster(dt, elapsed){
+    const mgx = Math.floor(monster.position.x/CELL_SIZE), mgy = Math.floor(monster.position.z/CELL_SIZE);
+    const pgx = Math.floor(player.position.x/CELL_SIZE), pgy = Math.floor(player.position.z/CELL_SIZE);
+
+    const dxp = player.position.x-monster.position.x, dzp = player.position.z-monster.position.z;
+    const distToPlayer = Math.sqrt(dxp*dxp+dzp*dzp);
+
+    const canSee = distToPlayer < 15 && hasLineOfSight(monster.position.x, monster.position.z, player.position.x, player.position.z);
+
+    if(canSee){
+        monsterState = 'CHASE';
+        monsterLastSeenTime = elapsed;
+    } else if(monsterState==='CHASE' && elapsed - monsterLastSeenTime > 4.5){
+        monsterState = 'WANDER';
+    }
+
+    monsterPathTimer -= dt;
+    if(monsterPathTimer <= 0){
+        monsterPathTimer = monsterState==='CHASE' ? 0.4 : 1.6;
+        let goal;
+        if(monsterState==='CHASE'){
+            goal = {gx:pgx, gy:pgy};
+        } else {
+            goal = randomOpenCell(null, 0);
+        }
+        monsterPath = bfsPath(mgx,mgy,goal.gx,goal.gy);
+    }
+
+    const curSpeed = (monsterState==='CHASE' ? 3.6 : 1.7);
+
+    if(monsterPath && monsterPath.length){
+        const [tx,ty] = monsterPath[0];
+        const targetX = tx*CELL_SIZE+CELL_SIZE/2, targetZ = ty*CELL_SIZE+CELL_SIZE/2;
+        const ddx = targetX-monster.position.x, ddz = targetZ-monster.position.z;
+        const d = Math.sqrt(ddx*ddx+ddz*ddz);
+        if(d < 0.25){
+            monsterPath.shift();
+        } else {
+            monster.position.x += (ddx/d)*curSpeed*dt;
+            monster.position.z += (ddz/d)*curSpeed*dt;
+            monsterMesh.rotation.y = Math.atan2(ddx, ddz);
+        }
+    }
+
+    monsterMesh.position.set(monster.position.x, Math.sin(elapsed*8)*0.03, monster.position.z);
+    monsterLight.intensity = 1.0 + Math.sin(elapsed*15)*0.3;
+
+    return distToPlayer;
+}
+
+// ============================================================
+//  SCENE INIT
+// ============================================================
+function initRenderer(){
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0a0a05);
-    scene.fog = new THREE.FogExp2(0x0a0a05, 0.09);
+    scene.fog = new THREE.FogExp2(0x0a0a05, 0.07);
 
-    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-    
-    renderer = new THREE.WebGLRenderer({ antialias: false });
+    camera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.1, 100);
+
+    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    const ambientLight = new THREE.AmbientLight(0xfffae6, 0.5);
+    window.addEventListener('resize', onWindowResize);
+}
+
+function buildScene(){
+    const ambientLight = new THREE.AmbientLight(0xfffae6, 0.55);
     scene.add(ambientLight);
-    
-    const pointLight = new THREE.PointLight(0xfff5b3, 0.9, 20);
+    const hemi = new THREE.HemisphereLight(0xfff4c8, 0x2a2410, 0.3);
+    scene.add(hemi);
+
+    const pointLight = new THREE.PointLight(0xfff5b3, 0.8, 14, 2);
     scene.add(pointLight);
 
     player = new THREE.Object3D();
-    player.position.set( CELL_SIZE * 1.5, 1.6, CELL_SIZE * 1.5 );
+    player.position.set(CELL_SIZE * 1.5, 1.6, CELL_SIZE * 1.5);
     scene.add(player);
     player.add(camera);
-    player.add(pointLight); 
+    player.add(pointLight);
 
     const wallTex = createWallTexture();
     const floorTex = createFloorTexture();
-    
+    const ceilTex = createCeilingTexture();
+
     const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
     const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
+    const ceilMat = new THREE.MeshLambertMaterial({ map: ceilTex });
 
     const floorGeo = new THREE.PlaneGeometry(MAP_SIZE * CELL_SIZE, MAP_SIZE * CELL_SIZE);
     const floor = new THREE.Mesh(floorGeo, floorMat);
@@ -178,59 +575,71 @@ function init() {
     floor.position.set((MAP_SIZE * CELL_SIZE)/2, 0, (MAP_SIZE * CELL_SIZE)/2);
     scene.add(floor);
 
-    const ceiling = new THREE.Mesh(floorGeo, wallMat);
+    const ceiling = new THREE.Mesh(floorGeo, ceilMat);
     ceiling.rotation.x = Math.PI / 2;
-    ceiling.position.set((MAP_SIZE * CELL_SIZE)/2, 3, (MAP_SIZE * CELL_SIZE)/2);
+    ceiling.position.set((MAP_SIZE * CELL_SIZE)/2, WALL_H, (MAP_SIZE * CELL_SIZE)/2);
     scene.add(ceiling);
 
     generateMap();
-    const wallGeo = new THREE.BoxGeometry(CELL_SIZE, 3, CELL_SIZE);
+
+    // 壁をInstancedMeshでまとめて負荷軽減
+    let wallCount = 0;
+    for(let r=0;r<MAP_SIZE;r++) for(let c=0;c<MAP_SIZE;c++) if(map[r][c]===1) wallCount++;
+    const wallGeo = new THREE.BoxGeometry(CELL_SIZE, WALL_H, CELL_SIZE);
+    const wallInstanced = new THREE.InstancedMesh(wallGeo, wallMat, wallCount);
+    const dummy = new THREE.Object3D();
+    let wi = 0;
     for (let r = 0; r < MAP_SIZE; r++) {
         for (let c = 0; c < MAP_SIZE; c++) {
             if (map[r][c] === 1) {
-                const wall = new THREE.Mesh(wallGeo, wallMat);
-                wall.position.set(c * CELL_SIZE + CELL_SIZE/2, 1.5, r * CELL_SIZE + CELL_SIZE/2);
-                scene.add(wall);
-                walls.push(wall);
+                dummy.position.set(c * CELL_SIZE + CELL_SIZE/2, WALL_H/2, r * CELL_SIZE + CELL_SIZE/2);
+                dummy.updateMatrix();
+                wallInstanced.setMatrixAt(wi++, dummy.matrix);
             }
         }
     }
+    scene.add(wallInstanced);
 
-    // モンスター生成
-    const monsterGeo = new THREE.CylinderGeometry(0.5, 0.5, 2.2, 8);
-    const monsterMat = new THREE.MeshBasicMaterial({ color: 0x050505 });
-    monster = new THREE.Mesh(monsterGeo, monsterMat);
-    
-    const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-    const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
-    const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
-    eye1.position.set(0.15, 0.7, -0.45);
-    eye2.position.set(-0.15, 0.7, -0.45);
-    monster.add(eye1); monster.add(eye2);
+    // フリッカー天井灯を通路上に間引き配置
+    lightPool = [];
+    for(let r=1; r<MAP_SIZE; r+=4){
+        for(let c=1; c<MAP_SIZE; c+=4){
+            if(map[r] && map[r][c]===0){
+                const wx = c*CELL_SIZE+CELL_SIZE/2, wz = r*CELL_SIZE+CELL_SIZE/2;
+                const light = new THREE.PointLight(0xfff4c8, 1.6, 9, 2);
+                light.position.set(wx, WALL_H-0.25, wz);
+                scene.add(light);
 
-    monster.position.set((MAP_SIZE - 2) * CELL_SIZE, 1.1, (MAP_SIZE - 2) * CELL_SIZE);
-    scene.add(monster);
-    getNewMonsterTarget();
+                const panelGeo = new THREE.PlaneGeometry(1.6, 0.5);
+                const panelMat = new THREE.MeshBasicMaterial({ color: 0xfff8d8 });
+                const panel = new THREE.Mesh(panelGeo, panelMat);
+                panel.rotation.x = Math.PI/2;
+                panel.position.set(wx, WALL_H-0.06, wz);
+                scene.add(panel);
 
-    setupControls();
-    window.addEventListener('resize', onWindowResize);
-    animate();
+                lightPool.push({ light, baseIntensity: 1.6, flickerTimer: Math.random()*5 });
+            }
+        }
+    }
 }
 
-function getNewMonsterTarget() {
-    let rx, ry;
-    do {
-        rx = Math.floor(Math.random() * MAP_SIZE);
-        ry = Math.floor(Math.random() * MAP_SIZE);
-    } while(map[ry][rx] === 1);
-    monsterTarget.set(rx * CELL_SIZE + CELL_SIZE/2, 1.1, ry * CELL_SIZE + CELL_SIZE/2);
+function placeMonster(){
+    const spawn = randomOpenCell(null, 0);
+    player.position.set(spawn.x, 1.6, spawn.z);
+
+    const monSpawn = randomOpenCell({x:spawn.x, z:spawn.z}, 26);
+    monster.position.set(monSpawn.x, 0, monSpawn.z);
 }
 
+// ============================================================
+//  CONTROLS
+// ============================================================
 function setupControls() {
     const zone = document.getElementById('joystick-zone');
     const knob = document.getElementById('joystick-knob');
     const runBtn = document.getElementById('run-btn');
+    const crouchBtn = document.getElementById('crouch-btn');
+    const lookZone = document.getElementById('look-zone');
     const touchArea = document.getElementById('touch-controls');
 
     let joyStartX = 0, joyStartY = 0, joyTouchId = null;
@@ -238,18 +647,19 @@ function setupControls() {
     touchArea.addEventListener('touchstart', (e) => {
         for (let touch of e.changedTouches) {
             const rect = zone.getBoundingClientRect();
-            if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
-                touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+            if (touch.clientX >= rect.left-30 && touch.clientX <= rect.right+30 &&
+                touch.clientY >= rect.top-30 && touch.clientY <= rect.bottom+30 && joyTouchId===null) {
                 joyTouchId = touch.identifier;
                 joyStartX = touch.clientX;
                 joyStartY = touch.clientY;
-            } else if (touch.clientX > window.innerWidth / 2 && touchLookId === null) {
+            } else if (touch.clientX > window.innerWidth * 0.45 && touchLookId === null) {
                 touchLookId = touch.identifier;
                 touchLookLastX = touch.clientX;
                 touchLookLastY = touch.clientY;
             }
         }
-    });
+        e.preventDefault();
+    }, {passive:false});
 
     touchArea.addEventListener('touchmove', (e) => {
         for (let touch of e.changedTouches) {
@@ -266,12 +676,14 @@ function setupControls() {
                 const dx = touch.clientX - touchLookLastX;
                 const dy = touch.clientY - touchLookLastY;
                 player.rotation.y -= dx * 0.005;
-                camera.rotation.x = Math.max(-Math.PI/3, Math.min(Math.PI/3, camera.rotation.x - dy * 0.005));
+                camPitch = Math.max(-Math.PI/3, Math.min(Math.PI/3, camPitch - dy * 0.005));
+                camera.rotation.x = camPitch;
                 touchLookLastX = touch.clientX;
                 touchLookLastY = touch.clientY;
             }
         }
-    });
+        e.preventDefault();
+    }, {passive:false});
 
     const resetJoy = (e) => {
         for (let touch of e.changedTouches) {
@@ -283,116 +695,211 @@ function setupControls() {
             if (touch.identifier === touchLookId) touchLookId = null;
         }
     };
-    touchArea.addEventListener('touchend', resetJoy);
-    touchArea.addEventListener('touchcancel', resetJoy);
+    touchArea.addEventListener('touchend', resetJoy, {passive:false});
+    touchArea.addEventListener('touchcancel', resetJoy, {passive:false});
 
-    // ダッシュ切り替え（トグル）
     runBtn.addEventListener('touchstart', (e) => {
         e.preventDefault();
         isRunning = !isRunning;
-        runBtn.textContent = isRunning ? "DASH" : "WALK";
-        runBtn.style.background = isRunning ? "rgba(255, 0, 0, 0.6)" : "rgba(100, 100, 100, 0.5)";
-    });
+        runBtn.classList.toggle('active2', isRunning);
+        runBtn.textContent = isRunning ? "DASH" : "RUN";
+    }, {passive:false});
+
+    crouchBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        isCrouching = !isCrouching;
+        crouchBtn.classList.toggle('active2', isCrouching);
+    }, {passive:false});
 }
 
-function checkRaycast(from, to) {
-    const dir = new THREE.Vector3().subVectors(to, from).normalize();
-    const ray = new THREE.Raycaster(from, dir);
-    const intersects = ray.intersectObjects(walls);
-    const distToTarget = from.distanceTo(to);
-    if (intersects.length > 0 && intersects[0].distance < distToTarget) {
-        return false; // 壁に遮られている
+// ============================================================
+//  LOADING / ERROR HANDLING
+// ============================================================
+function showLoadingError(error){
+    const loading = document.getElementById('loading-screen');
+    const textEl = document.getElementById('loading-text');
+    const stackEl = document.getElementById('loading-err-stack');
+    loading.classList.add('error');
+    loading.style.display = 'flex';
+    textEl.textContent = 'ERROR: ' + (error && error.message ? error.message : String(error));
+    if(error && error.stack){
+        stackEl.style.display = 'block';
+        stackEl.textContent = error.stack;
     }
-    return true; // 視線が通る
+    console.error(error);
 }
 
-let lastTime = performance.now();
-function animate() {
-    requestAnimationFrame(animate);
+function startGame(){
+    requestFullscreenAndLock();
+    document.getElementById('start-screen').style.display = 'none';
 
-    const time = performance.now();
-    const delta = (time - lastTime) / 1000;
-    lastTime = time;
+    const loading = document.getElementById('loading-screen');
+    const loadingText = document.getElementById('loading-text');
+    loading.classList.remove('error');
+    loading.style.display = 'flex';
+    loadingText.textContent = '初期化中...';
 
-    // スタミナ処理
-    if (isRunning && (moveForward !== 0 || moveRight !== 0) && stamina > 0) {
+    setTimeout(() => {
+        try {
+            if(typeof THREE === 'undefined'){
+                throw new Error('Three.jsの読み込みに失敗しました（CDN未到達 or ネットワークエラー）');
+            }
+
+            loadingText.textContent = 'Three.js初期化中...';
+            initRenderer();
+
+            loadingText.textContent = '迷路生成中...';
+            buildScene();
+
+            loadingText.textContent = '鬼を生成中...';
+            buildMonster();
+
+            loadingText.textContent = 'プレイヤー配置中...';
+            placeMonster();
+
+            loading.style.display = 'none';
+            document.getElementById('ui-overlay').classList.add('active');
+            document.getElementById('touch-controls').classList.add('active');
+
+            setupControls();
+
+            gameActive = true;
+            gameElapsed = 0;
+            gameOverHandled = false;
+            stamina = 100;
+            clock = { last: performance.now() };
+            animate();
+
+        } catch(error) {
+            showLoadingError(error);
+        }
+    }, 100);
+}
+
+document.getElementById('loading-reload').addEventListener('click', () => location.reload());
+document.getElementById('start-btn').addEventListener('click', startGame);
+
+// ============================================================
+//  GAME LOOP
+// ============================================================
+const statusText = document.getElementById('status-text');
+const timerBox = document.getElementById('timer-box');
+const staminaBar = document.getElementById('stamina-bar');
+const vignette = document.getElementById('vignette');
+
+function endGame(won){
+    gameActive = false;
+    gameOverHandled = true;
+    document.getElementById('touch-controls').classList.remove('active');
+
+    const endScreen = document.getElementById('game-over');
+    const endTitle = document.getElementById('end-title');
+    const endStats = document.getElementById('end-stats');
+
+    endTitle.className = won ? 'win' : 'caught';
+    endTitle.textContent = won ? 'ESCAPED' : 'CAUGHT';
+    endStats.textContent = won
+        ? `生存時間: ${TIME_LIMIT}秒 完走`
+        : `生存時間: ${gameElapsed.toFixed(1)}秒`;
+    endScreen.classList.add('show');
+}
+
+function updatePlayer(delta){
+    if (isRunning && (moveForward !== 0 || moveRight !== 0) && stamina > 0 && !isCrouching) {
         stamina = Math.max(0, stamina - 25 * delta);
         if (stamina === 0) {
             isRunning = false;
-            document.getElementById('run-btn').textContent = "WALK";
-            document.getElementById('run-btn').style.background = "rgba(100, 100, 100, 0.5)";
+            const runBtn = document.getElementById('run-btn');
+            runBtn.classList.remove('active2');
+            runBtn.textContent = "RUN";
         }
     } else {
         stamina = Math.min(100, stamina + 15 * delta);
     }
-    document.getElementById('stamina-bar').style.width = stamina + '%';
+    staminaBar.style.width = stamina + '%';
 
-    // プレイヤー移動
-    const speed = (isRunning && stamina > 0 ? 5.5 : 2.8) * delta;
+    let speedMult = 1;
+    if(isCrouching) speedMult = 0.55;
+    else if(isRunning && stamina > 0) speedMult = 1.95;
+
+    const speed = 2.8 * speedMult * delta;
+
     if (moveForward !== 0 || moveRight !== 0) {
         const dir = new THREE.Vector3(moveRight, 0, -moveForward).normalize();
         dir.applyQuaternion(player.quaternion);
 
-        const nextPos = player.position.clone().addScaledVector(dir, speed);
-        let collide = false;
-        
-        for (let wall of walls) {
-            const box = new THREE.Box3().setFromObject(wall);
-            const playerBox = new THREE.Box3().setFromCenterAndSize(nextPos, new THREE.Vector3(0.6, 1.8, 0.6));
-            if (box.intersectsBox(playerBox)) { collide = true; break; }
+        player.position.x += dir.x * speed;
+        player.position.z += dir.z * speed;
+        resolveCollision(player.position, PLAYER_RADIUS);
+
+        bobTime += delta * (speedMult > 1.3 ? 11 : 7);
+    }
+
+    const targetY = isCrouching ? 1.05 : 1.6;
+    const bob = (moveForward !== 0 || moveRight !== 0) ? Math.sin(bobTime) * 0.045 : 0;
+    player.position.y = targetY + bob;
+}
+
+function animate() {
+    if(!gameActive) return;
+    requestAnimationFrame(animate);
+
+    try {
+        const now = performance.now();
+        const delta = Math.min((now - clock.last) / 1000, 0.05);
+        clock.last = now;
+        gameElapsed += delta;
+
+        updatePlayer(delta);
+        const distToPlayer = updateMonster(delta, gameElapsed);
+
+        // フリッカー処理
+        for(const lp of lightPool){
+            lp.flickerTimer -= delta;
+            if(lp.flickerTimer <= 0){
+                if(Math.random() < 0.08){
+                    lp.light.intensity = lp.baseIntensity * (Math.random()*0.3);
+                    lp.flickerTimer = 0.05 + Math.random()*0.15;
+                } else {
+                    lp.light.intensity = lp.baseIntensity;
+                    lp.flickerTimer = 0.1 + Math.random()*2;
+                }
+            }
         }
-        if (!collide) player.position.copy(nextPos);
+
+        // ステータス表示
+        if(monsterState === 'CHASE'){
+            statusText.textContent = '⚠ 発見された！';
+            statusText.style.color = '#ff5555';
+        } else {
+            statusText.textContent = '徘徊中...';
+            statusText.style.color = '#e8e0a0';
+        }
+        timerBox.textContent = Math.max(0, Math.ceil(TIME_LIMIT - gameElapsed));
+
+        // 近接ビネット
+        const prox = Math.max(0, 1 - distToPlayer/6);
+        vignette.style.boxShadow = `inset 0 0 ${80+prox*120}px ${10+prox*40}px rgba(150,0,0,${prox*0.7})`;
+
+        // 捕獲判定
+        if (distToPlayer < (PLAYER_RADIUS+MONSTER_RADIUS) && !gameOverHandled) {
+            endGame(false);
+            return;
+        }
+
+        // 時間切れ＝勝利
+        if(gameElapsed >= TIME_LIMIT && !gameOverHandled){
+            endGame(true);
+            return;
+        }
+
+        renderer.render(scene, camera);
+    } catch(error) {
+        gameActive = false;
+        document.getElementById('ui-overlay').classList.remove('active');
+        document.getElementById('touch-controls').classList.remove('active');
+        showLoadingError(error);
     }
-
-    // --- モンスターAI（視界判定・徘徊・壁貫通防止） ---
-    const mPos = monster.position;
-    const pPos = player.position;
-    const distToPlayer = mPos.distanceTo(pPos);
-
-    // 視界判定（一定距離内 & 壁がない）
-    const canSeePlayer = (distToPlayer < 18) && checkRaycast(mPos, pPos);
-
-    if (canSeePlayer) {
-        monsterState = 'CHASE';
-    } else if (monsterState === 'CHASE' && distToPlayer > 22) {
-        monsterState = 'WANDER';
-        getNewMonsterTarget();
-    }
-
-    let moveDir = new THREE.Vector3();
-    if (monsterState === 'CHASE') {
-        moveDir.subVectors(pPos, mPos).setY(0).normalize();
-        monsterSpeed = 4.0 * delta; // 追跡時は速い
-    } else {
-        moveDir.subVectors(monsterTarget, mPos).setY(0).normalize();
-        monsterSpeed = 1.8 * delta; // 普段は遅い
-        if (mPos.distanceTo(monsterTarget) < 1.0) getNewMonsterTarget();
-    }
-
-    // 壁との衝突判定付きのモンスター移動
-    const nextMPos = mPos.clone().addScaledVector(moveDir, monsterSpeed);
-    let mCollide = false;
-    for (let wall of walls) {
-        const box = new THREE.Box3().setFromObject(wall);
-        const mBox = new THREE.Box3().setFromCenterAndSize(nextMPos, new THREE.Vector3(0.8, 2.0, 0.8));
-        if (box.intersectsBox(mBox)) { mCollide = true; break; }
-    }
-
-    if (!mCollide) {
-        monster.position.copy(nextMPos);
-    } else {
-        getNewMonsterTarget(); // 壁に当たったら新しい目的地を探す
-    }
-    
-    monster.lookAt(monster.position.x + moveDir.x, monster.position.y, monster.position.z + moveDir.z);
-
-    // 捕獲判定
-    if (distToPlayer < 1.2) {
-        document.getElementById('game-over').style.display = 'flex';
-        return;
-    }
-
-    renderer.render(scene, camera);
 }
 
 function onWindowResize() {
@@ -401,7 +908,7 @@ function onWindowResize() {
     renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-window.onload = init;
+})();
 </script>
 </body>
 </html>
