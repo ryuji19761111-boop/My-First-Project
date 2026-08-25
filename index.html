@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Backrooms 3D</title>
+    <style>
+        body {
+            margin: 0; overflow: hidden; background-color: #000;
+            font-family: sans-serif; user-select: none; -webkit-user-select: none;
+        }
+        #canvas-container { width: 100vw; height: 100vh; }
+        #ui-overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            pointer-events: none; box-sizing: border-box; padding: 20px;
+            display: flex; flex-direction: column; justify-content: space-between;
+        }
+        #stamina-container {
+            width: 180px; height: 12px; background: rgba(0,0,0,0.6);
+            border: 2px solid #fff; border-radius: 6px; overflow: hidden;
+        }
+        #stamina-bar { width: 100%; height: 100%; background: #00ffcc; }
+        #status-text { color: #fff; font-weight: bold; text-shadow: 2px 2px 4px #000; font-size: 14px; }
+        #touch-controls {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: auto;
+        }
+        #joystick-zone {
+            position: absolute; bottom: 30px; left: 30px; width: 120px; height: 120px;
+            background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%; touch-action: none;
+        }
+        #joystick-knob {
+            position: absolute; top: 35px; left: 35px; width: 50px; height: 50px;
+            background: rgba(255, 255, 255, 0.5); border-radius: 50%;
+        }
+        #run-btn {
+            position: absolute; bottom: 40px; right: 40px; width: 70px; height: 70px;
+            background: rgba(100, 100, 100, 0.5); border: 2px solid #fff;
+            border-radius: 50%; color: white; font-weight: bold;
+            display: flex; align-items: center; justify-content: center; touch-action: none;
+        }
+        #game-over {
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(150, 0, 0, 0.9); color: white;
+            flex-direction: column; justify-content: center; align-items: center; pointer-events: auto;
+        }
+        #game-over button {
+            padding: 15px 30px; font-size: 18px; background: #fff;
+            border: none; border-radius: 5px; margin-top: 20px; cursor: pointer;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="canvas-container"></div>
+    <div id="ui-overlay">
+        <div>
+            <div id="status-text">STAMINA</div>
+            <div id="stamina-container"><div id="stamina-bar"></div></div>
+        </div>
+    </div>
+    <div id="touch-controls">
+        <div id="joystick-zone"><div id="joystick-knob"></div></div>
+        <div id="run-btn">WALK</div>
+    </div>
+    <div id="game-over">
+        <h1>GAME OVER</h1>
+        <button onclick="location.reload()">RETRY</button>
+    </div>
+
+<script>
+const MAP_SIZE = 25;
+const CELL_SIZE = 4;
+let scene, camera, renderer;
+let player, monster;
+let stamina = 100;
+let isRunning = false;
+let moveForward = 0, moveRight = 0;
+let touchLookId = null, touchLookLastX = 0, touchLookLastY = 0;
+
+let map = [];
+const walls = [];
+
+// モンスターAI用
+let monsterState = 'WANDER';
+let monsterTarget = new THREE.Vector3();
+let monsterSpeed = 2.0;
+
+function createWallTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 256; canvas.height = 256;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#c5b358'; ctx.fillRect(0, 0, 256, 256);
+    ctx.strokeStyle = '#a49338'; ctx.lineWidth = 2;
+    for(let i = 0; i < 256; i += 32) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, 256); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(i, 40); ctx.lineTo(i+16, 60); ctx.lineTo(i, 80); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(i, 160); ctx.lineTo(i-16, 180); ctx.lineTo(i, 200); ctx.stroke();
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(1, 1);
+    return tex;
+}
+
+function createFloorTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#6e6b4e'; ctx.fillRect(0, 0, 128, 128);
+    for(let i=0; i<1000; i++) {
+        ctx.fillStyle = Math.random() > 0.5 ? '#5e5b3e' : '#7e7b5e';
+        ctx.fillRect(Math.random()*128, Math.random()*128, 2, 2);
+    }
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(MAP_SIZE, MAP_SIZE);
+    return tex;
+}
+
+function generateMap() {
+    for(let i=0; i<MAP_SIZE; i++) map[i] = new Array(MAP_SIZE).fill(1);
+    
+    // 複雑な四角部屋と通路の生成
+    for(let i=0; i<15; i++) {
+        let w = Math.floor(Math.random() * 3) + 2;
+        let h = Math.floor(Math.random() * 3) + 2;
+        let x = Math.floor(Math.random() * (MAP_SIZE - w - 2)) + 1;
+        let y = Math.floor(Math.random() * (MAP_SIZE - h - 2)) + 1;
+        for(let r = y; r < y+h; r++) {
+            for(let c = x; c < x+w; c++) map[r][c] = 0;
+        }
+    }
+    for(let r=1; r<MAP_SIZE-1; r+=2) {
+        for(let c=1; c<MAP_SIZE-1; c+=2) {
+            map[r][c] = 0;
+            if (r+1 < MAP_SIZE-1) map[r+1][c] = 0;
+            if (c+1 < MAP_SIZE-1) map[r][c+1] = 0;
+        }
+    }
+    map[1][1] = 0; map[1][2] = 0; map[2][1] = 0;
+}
+
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a05);
+    scene.fog = new THREE.FogExp2(0x0a0a05, 0.09);
+
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+    
+    renderer = new THREE.WebGLRenderer({ antialias: false });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0xfffae6, 0.5);
+    scene.add(ambientLight);
+    
+    const pointLight = new THREE.PointLight(0xfff5b3, 0.9, 20);
+    scene.add(pointLight);
+
+    player = new THREE.Object3D();
+    player.position.set( CELL_SIZE * 1.5, 1.6, CELL_SIZE * 1.5 );
+    scene.add(player);
+    player.add(camera);
+    player.add(pointLight); 
+
+    const wallTex = createWallTexture();
+    const floorTex = createFloorTexture();
+    
+    const wallMat = new THREE.MeshLambertMaterial({ map: wallTex });
+    const floorMat = new THREE.MeshLambertMaterial({ map: floorTex });
+
+    const floorGeo = new THREE.PlaneGeometry(MAP_SIZE * CELL_SIZE, MAP_SIZE * CELL_SIZE);
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set((MAP_SIZE * CELL_SIZE)/2, 0, (MAP_SIZE * CELL_SIZE)/2);
+    scene.add(floor);
+
+    const ceiling = new THREE.Mesh(floorGeo, wallMat);
+    ceiling.rotation.x = Math.PI / 2;
+    ceiling.position.set((MAP_SIZE * CELL_SIZE)/2, 3, (MAP_SIZE * CELL_SIZE)/2);
+    scene.add(ceiling);
+
+    generateMap();
+    const wallGeo = new THREE.BoxGeometry(CELL_SIZE, 3, CELL_SIZE);
+    for (let r = 0; r < MAP_SIZE; r++) {
+        for (let c = 0; c < MAP_SIZE; c++) {
+            if (map[r][c] === 1) {
+                const wall = new THREE.Mesh(wallGeo, wallMat);
+                wall.position.set(c * CELL_SIZE + CELL_SIZE/2, 1.5, r * CELL_SIZE + CELL_SIZE/2);
+                scene.add(wall);
+                walls.push(wall);
+            }
+        }
+    }
+
+    // モンスター生成
+    const monsterGeo = new THREE.CylinderGeometry(0.5, 0.5, 2.2, 8);
+    const monsterMat = new THREE.MeshBasicMaterial({ color: 0x050505 });
+    monster = new THREE.Mesh(monsterGeo, monsterMat);
+    
+    const eyeGeo = new THREE.SphereGeometry(0.08, 8, 8);
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+    const eye1 = new THREE.Mesh(eyeGeo, eyeMat);
+    const eye2 = new THREE.Mesh(eyeGeo, eyeMat);
+    eye1.position.set(0.15, 0.7, -0.45);
+    eye2.position.set(-0.15, 0.7, -0.45);
+    monster.add(eye1); monster.add(eye2);
+
+    monster.position.set((MAP_SIZE - 2) * CELL_SIZE, 1.1, (MAP_SIZE - 2) * CELL_SIZE);
+    scene.add(monster);
+    getNewMonsterTarget();
+
+    setupControls();
+    window.addEventListener('resize', onWindowResize);
+    animate();
+}
+
+function getNewMonsterTarget() {
+    let rx, ry;
+    do {
+        rx = Math.floor(Math.random() * MAP_SIZE);
+        ry = Math.floor(Math.random() * MAP_SIZE);
+    } while(map[ry][rx] === 1);
+    monsterTarget.set(rx * CELL_SIZE + CELL_SIZE/2, 1.1, ry * CELL_SIZE + CELL_SIZE/2);
+}
+
+function setupControls() {
+    const zone = document.getElementById('joystick-zone');
+    const knob = document.getElementById('joystick-knob');
+    const runBtn = document.getElementById('run-btn');
+    const touchArea = document.getElementById('touch-controls');
+
+    let joyStartX = 0, joyStartY = 0, joyTouchId = null;
+
+    touchArea.addEventListener('touchstart', (e) => {
+        for (let touch of e.changedTouches) {
+            const rect = zone.getBoundingClientRect();
+            if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
+                touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+                joyTouchId = touch.identifier;
+                joyStartX = touch.clientX;
+                joyStartY = touch.clientY;
+            } else if (touch.clientX > window.innerWidth / 2 && touchLookId === null) {
+                touchLookId = touch.identifier;
+                touchLookLastX = touch.clientX;
+                touchLookLastY = touch.clientY;
+            }
+        }
+    });
+
+    touchArea.addEventListener('touchmove', (e) => {
+        for (let touch of e.changedTouches) {
+            if (touch.identifier === joyTouchId) {
+                let dx = touch.clientX - joyStartX;
+                let dy = touch.clientY - joyStartY;
+                const dist = Math.min(Math.hypot(dx, dy), 40);
+                const angle = Math.atan2(dy, dx);
+                knob.style.transform = `translate(${Math.cos(angle)*dist}px, ${Math.sin(angle)*dist}px)`;
+                moveRight = Math.cos(angle) * (dist / 40);
+                moveForward = -Math.sin(angle) * (dist / 40);
+            }
+            if (touch.identifier === touchLookId) {
+                const dx = touch.clientX - touchLookLastX;
+                const dy = touch.clientY - touchLookLastY;
+                player.rotation.y -= dx * 0.005;
+                camera.rotation.x = Math.max(-Math.PI/3, Math.min(Math.PI/3, camera.rotation.x - dy * 0.005));
+                touchLookLastX = touch.clientX;
+                touchLookLastY = touch.clientY;
+            }
+        }
+    });
+
+    const resetJoy = (e) => {
+        for (let touch of e.changedTouches) {
+            if (touch.identifier === joyTouchId) {
+                joyTouchId = null;
+                knob.style.transform = 'translate(0px, 0px)';
+                moveForward = 0; moveRight = 0;
+            }
+            if (touch.identifier === touchLookId) touchLookId = null;
+        }
+    };
+    touchArea.addEventListener('touchend', resetJoy);
+    touchArea.addEventListener('touchcancel', resetJoy);
+
+    // ダッシュ切り替え（トグル）
+    runBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        isRunning = !isRunning;
+        runBtn.textContent = isRunning ? "DASH" : "WALK";
+        runBtn.style.background = isRunning ? "rgba(255, 0, 0, 0.6)" : "rgba(100, 100, 100, 0.5)";
+    });
+}
+
+function checkRaycast(from, to) {
+    const dir = new THREE.Vector3().subVectors(to, from).normalize();
+    const ray = new THREE.Raycaster(from, dir);
+    const intersects = ray.intersectObjects(walls);
+    const distToTarget = from.distanceTo(to);
+    if (intersects.length > 0 && intersects[0].distance < distToTarget) {
+        return false; // 壁に遮られている
+    }
+    return true; // 視線が通る
+}
+
+let lastTime = performance.now();
+function animate() {
+    requestAnimationFrame(animate);
+
+    const time = performance.now();
+    const delta = (time - lastTime) / 1000;
+    lastTime = time;
+
+    // スタミナ処理
+    if (isRunning && (moveForward !== 0 || moveRight !== 0) && stamina > 0) {
+        stamina = Math.max(0, stamina - 25 * delta);
+        if (stamina === 0) {
+            isRunning = false;
+            document.getElementById('run-btn').textContent = "WALK";
+            document.getElementById('run-btn').style.background = "rgba(100, 100, 100, 0.5)";
+        }
+    } else {
+        stamina = Math.min(100, stamina + 15 * delta);
+    }
+    document.getElementById('stamina-bar').style.width = stamina + '%';
+
+    // プレイヤー移動
+    const speed = (isRunning && stamina > 0 ? 5.5 : 2.8) * delta;
+    if (moveForward !== 0 || moveRight !== 0) {
+        const dir = new THREE.Vector3(moveRight, 0, -moveForward).normalize();
+        dir.applyQuaternion(player.quaternion);
+
+        const nextPos = player.position.clone().addScaledVector(dir, speed);
+        let collide = false;
+        
+        for (let wall of walls) {
+            const box = new THREE.Box3().setFromObject(wall);
+            const playerBox = new THREE.Box3().setFromCenterAndSize(nextPos, new THREE.Vector3(0.6, 1.8, 0.6));
+            if (box.intersectsBox(playerBox)) { collide = true; break; }
+        }
+        if (!collide) player.position.copy(nextPos);
+    }
+
+    // --- モンスターAI（視界判定・徘徊・壁貫通防止） ---
+    const mPos = monster.position;
+    const pPos = player.position;
+    const distToPlayer = mPos.distanceTo(pPos);
+
+    // 視界判定（一定距離内 & 壁がない）
+    const canSeePlayer = (distToPlayer < 18) && checkRaycast(mPos, pPos);
+
+    if (canSeePlayer) {
+        monsterState = 'CHASE';
+    } else if (monsterState === 'CHASE' && distToPlayer > 22) {
+        monsterState = 'WANDER';
+        getNewMonsterTarget();
+    }
+
+    let moveDir = new THREE.Vector3();
+    if (monsterState === 'CHASE') {
+        moveDir.subVectors(pPos, mPos).setY(0).normalize();
+        monsterSpeed = 4.0 * delta; // 追跡時は速い
+    } else {
+        moveDir.subVectors(monsterTarget, mPos).setY(0).normalize();
+        monsterSpeed = 1.8 * delta; // 普段は遅い
+        if (mPos.distanceTo(monsterTarget) < 1.0) getNewMonsterTarget();
+    }
+
+    // 壁との衝突判定付きのモンスター移動
+    const nextMPos = mPos.clone().addScaledVector(moveDir, monsterSpeed);
+    let mCollide = false;
+    for (let wall of walls) {
+        const box = new THREE.Box3().setFromObject(wall);
+        const mBox = new THREE.Box3().setFromCenterAndSize(nextMPos, new THREE.Vector3(0.8, 2.0, 0.8));
+        if (box.intersectsBox(mBox)) { mCollide = true; break; }
+    }
+
+    if (!mCollide) {
+        monster.position.copy(nextMPos);
+    } else {
+        getNewMonsterTarget(); // 壁に当たったら新しい目的地を探す
+    }
+    
+    monster.lookAt(monster.position.x + moveDir.x, monster.position.y, monster.position.z + moveDir.z);
+
+    // 捕獲判定
+    if (distToPlayer < 1.2) {
+        document.getElementById('game-over').style.display = 'flex';
+        return;
+    }
+
+    renderer.render(scene, camera);
+}
+
+function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+window.onload = init;
+</script>
+</body>
+</html>
